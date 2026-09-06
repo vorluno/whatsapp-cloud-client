@@ -1,0 +1,56 @@
+name: Bug report
+description: Something behaves differently from what it documents.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. The three fields that decide whether this can be fixed are
+        **what you ran**, **what happened**, and **the version** — everything else is a bonus.
+
+        Not a bug? A vulnerability goes to **security@vorluno.dev**, never here.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, and what you got. Paste the error verbatim if there is one.
+      placeholder: |
+        I ran `…` and got:
+
+        ```
+        …
+        ```
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected instead
+      description: If it contradicts something the README says, quote that line — those are the ones we fix first.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The version you are running. `bun pm ls` or the tag you cloned.
+      placeholder: "0.2.0"
+    validations:
+      required: true
+
+  - type: input
+    id: environment
+    attributes:
+      label: Bun, OS, and MCP client
+      placeholder: "Bun 1.3.2 · macOS 15 · Claude Code"
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: The smallest way to reproduce it
+      description: Optional, and the single most useful thing you can add.

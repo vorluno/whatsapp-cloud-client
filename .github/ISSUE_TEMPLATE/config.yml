@@ -1,0 +1,11 @@
+# Blank issues are off on purpose, and it is not hostility: an issue with no version, no
+# reproduction and no statement of what was expected always gets the same first reply — a request
+# for those three — and by then whoever opened it is gone. The form below asks for them once.
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/vorluno/whatsapp-cloud-client/security/policy
+    about: Do not open an issue. Email security@vorluno.dev — we acknowledge within 72 hours.
+  - name: Question about using this
+    url: https://github.com/vorluno/whatsapp-cloud-client/discussions
+    about: Usage questions go to Discussions. Issues are for defects.

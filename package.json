@@ -1,0 +1,51 @@
+{
+  "name": "whatsapp-cloud-client",
+  "version": "0.1.0",
+  "description": "A typed WhatsApp Cloud API client for Node: webhook signature verification first, in constant time and fail-closed.",
+  "keywords": [
+    "whatsapp",
+    "whatsapp-cloud-api",
+    "meta",
+    "webhook",
+    "messaging",
+    "typescript"
+  ],
+  "homepage": "https://github.com/vorluno/whatsapp-cloud-client#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vorluno/whatsapp-cloud-client.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vorluno/whatsapp-cloud-client/issues"
+  },
+  "author": "Vorluno (https://vorluno.dev)",
+  "license": "Apache-2.0",
+  "type": "module",
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5"
+  },
+  "exports": {
+    "./webhook": "./src/providers/meta-webhook.ts",
+    "./sender": "./src/providers/meta.ts",
+    "./errors": "./src/providers/meta-errors.ts",
+    "./media": "./src/providers/meta-media.ts",
+    "./onboarding": "./src/providers/meta-onboarding.ts",
+    "./http": "./src/providers/http.ts",
+    "./contract": "./src/sender-contract.ts"
+  }
+}

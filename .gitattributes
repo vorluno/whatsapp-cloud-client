@@ -1,0 +1,8 @@
+# Un final de línea distinto por sistema convierte cualquier diff en ilegible, y en un repositorio
+# que se clona desde Windows y macOS a la vez eso pasa el primer día.
+* text=auto eol=lf
+
+*.jpg binary
+*.png binary
+*.svg text eol=lf
+bun.lock -diff linguist-generated

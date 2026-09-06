@@ -1,0 +1,16 @@
+Vorluno — https://vorluno.dev
+
+This repository was published without its original history: the private monorepo it comes from
+contains customer names and internal paths that are not ours to publish, and filtering by path would
+have removed the files while leaving the commit messages — which describe work on both sides of the
+line. The code is the same; only the history was left behind.
+
+The work it contains is credited here instead.
+
+## Authors
+
+- Vorluno <contacto@vorluno.dev>
+
+## Contributors
+
+<!-- Anyone who contributes is added here, with a link to their pull request. Nobody adds themselves. -->
