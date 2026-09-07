@@ -24,13 +24,15 @@
   "files": [
     "src",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "NOTICE"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "prepublishOnly": "tsc --noEmit"
   },
   "dependencies": {
     "zod": "^3.24.1"
