@@ -1,15 +1,15 @@
-<!-- Una PR sin las dos primeras líneas cuesta un viaje de ida y vuelta que nadie quería hacer. -->
+<!-- A pull request without the first two sections costs a round trip nobody wanted to make. -->
 
-**Qué cambia y por qué**
+**What changes, and why**
 
-<!-- El problema primero. Si hay un issue, enlázalo: `Fixes #123`. -->
+<!-- The problem first. If there is an issue, link it: `Fixes #123`. -->
 
-**Cómo se comprueba**
+**How it was checked**
 
-<!-- El test que se pone rojo sin este cambio, o los pasos para verlo a mano. -->
+<!-- The test that goes red without this change, or the steps to see it by hand. -->
 
 ---
 
-- [ ] Un solo cambio: un arreglo mezclado con una reorganización es un arreglo que nadie puede revisar
-- [ ] `bun test` y `bunx tsc --noEmit` en verde — y si algo está rojo por un motivo ajeno, dicho arriba
-- [ ] Si cambia el comportamiento, la documentación dice lo nuevo
+- [ ] One change. A fix bundled with a reorganisation is a fix nobody can review
+- [ ] `bun test` and `bunx tsc --noEmit` are green — and if something is red for an unrelated reason, said above
+- [ ] If the behaviour changed, the documentation says the new thing
