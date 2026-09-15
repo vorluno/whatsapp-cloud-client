@@ -1,6 +1,6 @@
 {
   "name": "whatsapp-cloud-client",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A typed WhatsApp Cloud API client for Node: webhook signature verification first, in constant time and fail-closed.",
   "keywords": [
     "whatsapp",

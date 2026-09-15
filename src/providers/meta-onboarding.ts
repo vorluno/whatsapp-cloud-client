@@ -77,12 +77,40 @@ export async function subscribeAppToWaba(wabaId: string, accessToken: string, op
   await postJson(fetchFn, "meta", url, { authorization: `Bearer ${accessToken}` }, {});
 }
 
-/** Step 4: register the number on the Cloud API, plus the `pin` if the customer has two-factor on it. */
-export async function registerPhoneNumber(phoneNumberId: string, accessToken: string, opts?: MetaOnboardingOpts, pin?: string): Promise<void> {
+/**
+ * Step 4: activates the number on the Cloud API. **The `pin` is REQUIRED, always** — not "if the customer has 2FA".
+ *
+ * For months this function only sent it when provided, with the comment "+pin if the customer has 2FA on the
+ * number", and the first real customer who connected a NEW number through Embedded Signup (2026-09-15) hit
+ * `(#100) The parameter pin is required`. Meta's documentation is unambiguous: *"pin — Required. If your number already
+ * has two-step verification enabled, set this value to its 6-digit PIN. If it does not, set this value to a 6-digit
+ * number"* and *"We enforce setting two-step verification during account creation"*. In other words: registering a
+ * number IS enabling two-step verification on it; the PIN we send here becomes ITS PIN.
+ *
+ * That is why the caller decides the PIN first (the customer's, or one generated with `generateTwoStepPin`) and
+ * persists it encrypted: if the customer ever moves the number, they will need it. A PIN that only ever existed in
+ * one HTTP request is a number nobody can use again.
+ */
+export async function registerPhoneNumber(phoneNumberId: string, accessToken: string, opts: MetaOnboardingOpts | undefined, pin: string): Promise<void> {
+  if (!/^\d{6}$/.test(pin)) throw new Error("registerPhoneNumber: the two-step verification PIN must be exactly 6 digits");
   const { fetchFn, version } = readOpts(opts);
   const url = `https://graph.facebook.com/${version}/${phoneNumberId}/register`;
-  const payload: Record<string, unknown> = { messaging_product: "whatsapp", ...(pin ? { pin } : {}) };
-  await postJson(fetchFn, "meta", url, { authorization: `Bearer ${accessToken}` }, payload);
+  await postJson(fetchFn, "meta", url, { authorization: `Bearer ${accessToken}` }, { messaging_product: "whatsapp", pin });
+}
+
+/** A 6-digit PIN for a number that does not have two-step verification yet. Truly random (`crypto`), never
+ *  derived from anything guessable (date, number, org). */
+export function generateTwoStepPin(): string {
+  const n = new Uint32Array(1);
+  crypto.getRandomValues(n);
+  return String(100000 + (n[0]! % 900000));
+}
+
+/** Meta answers 133005 when the number ALREADY has two-step verification and the PIN is not its own. Told apart
+ *  so the screen can ask for the right PIN instead of saying "could not connect". */
+export function isPinMismatch(error: unknown): boolean {
+  const texto = error instanceof Error ? error.message : String(error);
+  return /133005|two[- ]step verification pin mismatch|pin mismatch/i.test(texto);
 }
 
 // The Embedded Signup popup only posts back the account id and the phone number id — never the number itself in
