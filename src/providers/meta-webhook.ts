@@ -40,6 +40,44 @@ export interface ParsedInboundMedia {
   caption?: string;
   filename?: string; // only a document has one
 }
+/**
+ * The ad that opened a WhatsApp conversation (click-to-WhatsApp). Meta sends a `referral` block on the first message
+ * of a chat born from an ad; it is mapped here to camelCase. Every field is optional and capped at 500 characters:
+ * it is attribution data, never the truth.
+ */
+export interface AdReferral {
+  sourceUrl?: string;
+  sourceId?: string; // the ad id when `sourceType` is "ad"
+  sourceType?: string; // "ad" | "post"
+  headline?: string;
+  body?: string;
+  ctwaClid?: string; // the click id, for the Conversions API for messaging
+}
+
+const REFERRAL_FIELDS: [string, keyof AdReferral][] = [
+  ["source_url", "sourceUrl"],
+  ["source_id", "sourceId"],
+  ["source_type", "sourceType"],
+  ["headline", "headline"],
+  ["body", "body"],
+  ["ctwa_clid", "ctwaClid"],
+];
+const REFERRAL_MAX = 500;
+
+/** Maps Meta's raw `referral` to an `AdReferral`. Tolerant on purpose: anything that is not a non-empty string is
+ *  ignored, and a referral with no usable field is `undefined`. It never throws: a malformed referral must not drop
+ *  the message it travels with. */
+export function toAdReferral(raw: unknown): AdReferral | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const src = raw as Record<string, unknown>;
+  const out: AdReferral = {};
+  for (const [from, to] of REFERRAL_FIELDS) {
+    const v = src[from];
+    if (typeof v === "string" && v.trim()) out[to] = v.slice(0, REFERRAL_MAX);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 export interface ParsedInbound {
   phoneNumberId: string;
   providerMessageId: string;
@@ -53,15 +91,17 @@ export interface ParsedInbound {
   // deterministic path — with no model in the loop.
   interactiveReplyId?: string;
   /**
-   * The TEXT of the TEMPLATE button the person tapped. Present only on `type: "button"`.
-   *
-   * This is a DIFFERENT mechanism from the interactive reply id, and the distinction matters: that one carries an
-   * opaque id this system chose when sending, so routing on it cannot be wrong. Here Meta exposes no payload of
-   * its own — the text IS the contract. Which is why those strings live as constants next to the templates, and a
-   * test fails if the router and the template drift apart: changing "Already paid" to "I already paid" would
-   * break routing silently.
-   */
+  * The TEXT of the TEMPLATE button the person tapped. Present only on `type: "button"`.
+  *
+  * This is a DIFFERENT mechanism from the interactive reply id, and the distinction matters: that one carries an
+  * opaque id this system chose when sending, so routing on it cannot be wrong. Here Meta exposes no payload of
+  * its own — the text IS the contract. Which is why those strings live as constants next to the templates, and a
+  * test fails if the router and the template drift apart: changing "Already paid" to "I already paid" would
+  * break routing silently.
+  */
   templateButtonText?: string;
+  /** The ad that opened the chat, when the message carries Meta's `referral` block. Absent otherwise. */
+  referral?: AdReferral;
 }
 export interface ParsedStatus {
   phoneNumberId: string;
@@ -139,6 +179,9 @@ const MetaPayload = z.object({
                       // `payload` is the one Meta documents as stable and `text` is the one it displays. Both
                       // optional: the parser's shape is tolerant by design.
                       button: z.object({ payload: z.string().optional(), text: z.string().optional() }).optional(),
+                      // Click-to-WhatsApp ad attribution. `unknown` on purpose: a strict shape that Meta breaks would fail the
+                      // safeParse of the WHOLE payload and drop every message in the delivery. `toAdReferral` narrows it.
+                      referral: z.unknown().optional(),
                     }),
                   )
                   .optional(),
@@ -213,6 +256,8 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
       const nameByWaId = new Map((v.contacts ?? []).map((c) => [c.wa_id, c.profile?.name]));
 
       for (const m of v.messages ?? []) {
+        const referral = toAdReferral(m.referral);
+        const ref = referral ? { referral } : {}; // spread into every inbound below: the ad travels with any message type
         if (m.type === "text") {
           if (!m.text?.body) continue; // a text message with no body is an inconsistent payload → discard THIS message, not the batch
           out.inbound.push({
@@ -222,6 +267,7 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
             body: m.text.body,
             name: nameByWaId.get(m.from),
             timestamp: m.timestamp ? Number(m.timestamp) : undefined,
+            ...ref,
           });
           continue;
         }
@@ -239,6 +285,7 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
             body: reply.title,
             name: nameByWaId.get(m.from),
             timestamp: m.timestamp ? Number(m.timestamp) : undefined,
+            ...ref,
             interactiveReplyId: reply.id,
           });
           continue;
@@ -259,6 +306,7 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
             body: texto,
             name: nameByWaId.get(m.from),
             timestamp: m.timestamp ? Number(m.timestamp) : undefined,
+            ...ref,
             templateButtonText: texto,
           });
           continue;
@@ -276,6 +324,7 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
             body: media.caption ?? "", // audio never carries a caption, so the body is empty — there is no text to materialise
             name: nameByWaId.get(m.from),
             timestamp: m.timestamp ? Number(m.timestamp) : undefined,
+            ...ref,
             media: {
               mediaId: media.id,
               mimeType: media.mime_type,

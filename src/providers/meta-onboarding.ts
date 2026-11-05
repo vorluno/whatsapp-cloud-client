@@ -19,7 +19,7 @@ function readOpts(opts?: MetaOnboardingOpts) {
     fetchFn: opts?.fetch ?? defaultFetch,
     appId: opts?.appId ?? process.env.META_WA_APP_ID ?? "",
     appSecret: opts?.appSecret ?? process.env.META_WA_APP_SECRET ?? "",
-    version: opts?.graphVersion ?? process.env.META_WA_GRAPH_VERSION ?? "v21.0",
+    version: opts?.graphVersion ?? process.env.META_WA_GRAPH_VERSION ?? "v25.0",
   };
 }
 

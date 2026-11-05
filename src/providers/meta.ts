@@ -73,7 +73,7 @@ export function makeMetaSender(opts: MetaSenderOpts = {}): MessageSender {
   const rawFetchFn = opts.rawFetch ?? defaultRawFetch;
   const token = opts.accessToken ?? process.env.META_WA_ACCESS_TOKEN ?? "";
   const phoneNumberId = opts.phoneNumberId ?? process.env.META_WA_PHONE_NUMBER_ID ?? "";
-  const version = opts.graphVersion ?? process.env.META_WA_GRAPH_VERSION ?? "v21.0";
+  const version = opts.graphVersion ?? process.env.META_WA_GRAPH_VERSION ?? "v25.0";
   const language = opts.defaultLanguage ?? "es";
 
   return {
@@ -95,6 +95,15 @@ export function makeMetaSender(opts: MetaSenderOpts = {}): MessageSender {
         if (caption) mediaObj.caption = caption;
         if (kind === "document" && filename) mediaObj.filename = filename; // filename only applies to a document
         payload = { messaging_product: "whatsapp", to: args.identifier, type: kind, [kind]: mediaObj };
+      } else if (args.interactive?.type === "cta_url") {
+        // A link button (`cta_url`): one button that opens a URL. WhatsApp does not allow mixing it with reply buttons.
+        const { body, label, url: link } = args.interactive;
+        payload = {
+          messaging_product: "whatsapp",
+          to: args.identifier,
+          type: "interactive",
+          interactive: { type: "cta_url", body: { text: body }, action: { name: "cta_url", parameters: { display_text: label, url: link } } },
+        };
       } else if (args.interactive) {
         const { body, options } = args.interactive;
         payload = {

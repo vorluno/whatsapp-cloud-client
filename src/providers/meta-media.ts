@@ -42,7 +42,7 @@ export async function fetchMetaMedia(
   opts?: FetchMetaMediaOpts,
 ): Promise<FetchMetaMediaResult> {
   const fetchFn = opts?.fetch ?? defaultFetch;
-  const version = opts?.graphVersion ?? process.env.META_WA_GRAPH_VERSION ?? "v21.0";
+  const version = opts?.graphVersion ?? process.env.META_WA_GRAPH_VERSION ?? "v25.0";
   const headers = { authorization: `Bearer ${accessToken}` };
 
   // Step one: metadata plus the signed download URL. JSON, so the shared helper does the work.

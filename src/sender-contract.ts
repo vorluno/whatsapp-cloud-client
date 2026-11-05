@@ -41,11 +41,9 @@ export interface SendMedia {
  *
  * Graph API limits, which are Meta's and not ours: `title` at most 20 characters, `id` at most 256.
  */
-export interface InteractiveMessage {
-  type: "button";
-  body: string;
-  options: { id: string; title: string }[];
-}
+export type InteractiveMessage =
+  | { type: "button"; body: string; options: { id: string; title: string }[] }
+  | { type: "cta_url"; body: string; label: string; url: string };
 
 /** An email attachment. `content` is the raw bytes; the adapter encodes them however the provider wants. */
 export interface EmailAttachment {
@@ -64,22 +62,22 @@ export interface SendArgs {
   /** Template language resolved per message; defaults to Spanish. */
   language?: string;
   /**
-   * A discriminated union at the PAYLOAD level: with `media` this is a media send and the `caption` replaces the
-   * free text; without it, the ordinary text-or-template flow. **Never both at once**: one send is one or the
-   * other, never two messages out of a single queue row.
-   */
+  * A discriminated union at the PAYLOAD level: with `media` this is a media send and the `caption` replaces the
+  * free text; without it, the ordinary text-or-template flow. **Never both at once**: one send is one or the
+  * other, never two messages out of a single queue row.
+  */
   media?: SendMedia;
   /**
-   * Same "never both at once" discipline as `media`: an interactive message carries neither media nor a template.
-   * Unlike `media`, which needs a `mediaId` already resolved by `uploadMedia`, the shape here is the SAME one the
-   * queue persists — no translation layer — because nothing has to be resolved externally first.
-   */
+  * Same "never both at once" discipline as `media`: an interactive message carries neither media nor a template.
+  * Unlike `media`, which needs a `mediaId` already resolved by `uploadMedia`, the shape here is the SAME one the
+  * queue persists — no translation layer — because nothing has to be resolved externally first.
+  */
   interactive?: InteractiveMessage;
   /**
-   * Email attachments, on the email channel only. The BYTES travel in the body of the call to the provider,
-   * **never a URL**: a URL would expose the document behind a link the provider can follow, and these documents
-   * carry customer data.
-   */
+  * Email attachments, on the email channel only. The BYTES travel in the body of the call to the provider,
+  * **never a URL**: a URL would expose the document behind a link the provider can follow, and these documents
+  * carry customer data.
+  */
   attachments?: EmailAttachment[];
 }
 
@@ -94,11 +92,11 @@ export interface UploadMediaResult {
 export interface MessageSender {
   send(args: SendArgs): Promise<SendResult>;
   /**
-   * Uploads BYTES — already read out of storage by the caller — to the provider's media API, and returns the
-   * `mediaId` that `send({ media: { mediaId, ... } })` then refers to.
-   *
-   * The provider's HTTP and its token belong to **this** package; storage is **never** imported here. The caller
-   * hands over bytes it has already resolved, so neither half has to touch the other's credentials.
-   */
+  * Uploads BYTES — already read out of storage by the caller — to the provider's media API, and returns the
+  * `mediaId` that `send({ media: { mediaId, ... } })` then refers to.
+  *
+  * The provider's HTTP and its token belong to **this** package; storage is **never** imported here. The caller
+  * hands over bytes it has already resolved, so neither half has to touch the other's credentials.
+  */
   uploadMedia(bytes: Uint8Array, mimeType: string): Promise<UploadMediaResult>;
 }
