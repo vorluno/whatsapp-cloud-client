@@ -109,6 +109,8 @@ export interface ParsedStatus {
   status: string; // sent | delivered | read | failed
   recipientId: string; // E.164 without the '+'
   timestamp?: number;
+  /** Only on `failed`: the code of the first error Meta sends (`errors[0].code`). Absent if none came or it is not a number. */
+  errorCode?: number;
 }
 // A template event off the webhook: status in real time, the fast path. The periodic sync is the backstop.
 // `event` and `category` arrive RAW from Meta, in upper case; the worker case-folds them and maps them onto the
@@ -186,7 +188,17 @@ const MetaPayload = z.object({
                   )
                   .optional(),
                 statuses: z
-                  .array(z.object({ id: z.string(), status: z.string(), recipient_id: z.string(), timestamp: z.string().optional() }))
+                  .array(
+                    z.object({
+                      id: z.string(),
+                      status: z.string(),
+                      recipient_id: z.string(),
+                      timestamp: z.string().optional(),
+                      // `unknown` on purpose: an `errors` field with an unexpected shape must not fail the safeParse of the WHOLE
+                      // delivery. `firstErrorCode` narrows it.
+                      errors: z.unknown().optional(),
+                    }),
+                  )
                   .optional(),
                 // The value of a template status or category update. The types here are DELIBERATELY PERMISSIVE:
                 // a union of string and number, because Meta sends the template id as a NUMBER — and one wrong
@@ -346,9 +358,20 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
           status: s.status,
           recipientId: s.recipient_id,
           timestamp: s.timestamp ? Number(s.timestamp) : undefined,
+          errorCode: firstErrorCode(s.errors),
         });
       }
     }
   }
   return out;
+}
+
+// The code of the first error of a `failed` status. Meta sends it as a number (`131049`); text is accepted too.
+function firstErrorCode(errors: unknown): number | undefined {
+  if (!Array.isArray(errors) || errors.length === 0) return undefined;
+  const first: unknown = errors[0];
+  if (typeof first !== "object" || first === null) return undefined;
+  const code = (first as { code?: unknown }).code;
+  const n = typeof code === "number" ? code : typeof code === "string" ? Number(code) : Number.NaN;
+  return Number.isInteger(n) ? n : undefined;
 }
