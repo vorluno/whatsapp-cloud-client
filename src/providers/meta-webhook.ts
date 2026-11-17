@@ -161,11 +161,25 @@ export type ParsedAccountEvent =
       partnerAppId?: string;
     };
 
+/** `user_preferences`: the person stopped or resumed this business's marketing messages from their WhatsApp. */
+export interface ParsedUserPreference {
+  phoneNumberId: string;
+  /** The person's number (E.164 without `+`), as Meta sends it. */
+  waId: string;
+  /** `stop` | `resume`, as sent. */
+  value: string;
+  timestamp?: number;
+  /** The WhatsApp Business account it arrived through. Meta gives this notice no id: the account, the two
+  *  numbers and the time identify it. */
+  wabaId?: string;
+}
+
 export interface ParsedMetaWebhook {
   inbound: ParsedInbound[];
   statuses: ParsedStatus[];
   templateEvents: ParsedTemplateEvent[];
   accountEvents: ParsedAccountEvent[];
+  userPreferences: ParsedUserPreference[];
 }
 
 // A TOLERANT schema for Meta's payload. Everything is optional, so an unexpected shape never throws — it comes
@@ -266,6 +280,8 @@ const MetaPayload = z.object({
                 restriction_info: z.unknown().optional(),
                 violation_info: z.unknown().optional(),
                 waba_info: z.unknown().optional(),
+                // `user_preferences`: also `unknown`, for the same reason. It is narrowed by hand.
+                user_preferences: z.unknown().optional(),
               }),
             }),
           )
@@ -292,7 +308,7 @@ interface MediaSubObj {
 
 /** Pulls the inbound messages and the statuses out of a Meta payload. Tolerant: garbage yields empty sections. */
 export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
-  const out: ParsedMetaWebhook = { inbound: [], statuses: [], templateEvents: [], accountEvents: [] };
+  const out: ParsedMetaWebhook = { inbound: [], statuses: [], templateEvents: [], accountEvents: [], userPreferences: [] };
   const parsed = MetaPayload.safeParse(body);
   if (!parsed.success) return out;
 
@@ -365,6 +381,12 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
 
       const phoneNumberId = v.metadata?.phone_number_id;
       if (!phoneNumberId) continue;
+
+      // The person stopped or resumed marketing from their WhatsApp. This notice DOES carry the business's number.
+      if (change.field === "user_preferences") {
+        for (const p of preferencias(v.user_preferences)) out.userPreferences.push({ phoneNumberId, ...p, ...(entry.id != null ? { wabaId: String(entry.id) } : {}) });
+        continue;
+      }
       const nameByWaId = new Map((v.contacts ?? []).map((c) => [c.wa_id, c.profile?.name]));
 
       for (const m of v.messages ?? []) {
@@ -480,6 +502,20 @@ function restricciones(x: unknown): { type: string; expiresAt?: number }[] {
     if (!type) return [];
     const exp = Number(objeto(r)?.expiration);
     return [{ type, ...(objeto(r)?.expiration != null && Number.isFinite(exp) ? { expiresAt: exp } : {}) }];
+  });
+}
+
+// The marketing preferences in a `user_preferences` notice. Only the ones about marketing messages, and only those
+// that carry the person's number: someone using a username with no shared number cannot be matched to anybody.
+function preferencias(x: unknown): { waId: string; value: string; timestamp?: number }[] {
+  if (!Array.isArray(x)) return [];
+  return x.flatMap((p) => {
+    const o = objeto(p);
+    const waId = texto(o?.wa_id);
+    const value = texto(o?.value);
+    if (!waId || !value || o?.category !== "marketing_messages") return [];
+    const ts = Number(o?.timestamp);
+    return [{ waId, value, ...(o?.timestamp != null && Number.isFinite(ts) ? { timestamp: ts } : {}) }];
   });
 }
 
