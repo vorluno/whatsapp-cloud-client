@@ -117,16 +117,55 @@ export interface ParsedStatus {
 // stored enum. The template id is normalised from Meta's numeric form to a string, to match how it is stored.
 export interface ParsedTemplateEvent {
   metaTemplateId: string;
-  event: string; // Meta's RAW event (APPROVED / REJECTED / PAUSED / ...) — plus a synthetic one for a category change
+  // Meta's RAW event (APPROVED / REJECTED / PAUSED / ...). Two are synthetic: 'CATEGORY_UPDATE' for a category change
+  // and 'QUALITY_UPDATE' for a quality change, which arrive on their own field and without an `event`.
+  event: string;
   name?: string;
   language?: string;
   category?: string; // the category, raw, from whichever of the two fields carries it
   reason?: string;
+  /** Only on the notice sent 24 hours BEFORE a category change: the category Meta is going to assign (`category` is
+  *  still today's) and when (Unix seconds). Absent on the notice of a change that already happened. */
+  correctCategory?: string;
+  categoryUpdateAt?: number;
+  /** Only on QUALITY_UPDATE: the new quality, RAW (GREEN / YELLOW / RED / UNKNOWN). */
+  quality?: string;
 }
+
+// ACCOUNT notices. They are not about a message, nor about a number by its `phone_number_id`: they are about the
+// whole WhatsApp Business account (`entry.id`) and, sometimes, about one of its numbers by how it is displayed (`display_phone_number`).
+// The worker resolves the tenant from the account id. Everything is passed RAW from Meta; whoever applies it decides what it means.
+export type ParsedAccountEvent =
+  | {
+      /** The portfolio's messaging limit (phone_number_quality_update, business_capability_update). */
+      kind: "messaging_limit";
+      wabaId: string;
+      /** TIER_50 | TIER_250 | TIER_2K | TIER_10K | TIER_100K | TIER_UNLIMITED | TIER_NOT_SET, as sent. */
+      limit: string;
+      /** The number the notice is about, if it is about one (digits only, as Meta sends it). */
+      displayPhoneNumber?: string;
+    }
+  | {
+      /** account_update: a ban, a restriction, a violation, or the customer removing the app. */
+      kind: "account";
+      wabaId: string;
+      /** DISABLED_UPDATE | ACCOUNT_RESTRICTION | ACCOUNT_VIOLATION | ACCOUNT_DELETED | PARTNER_REMOVED | PARTNER_APP_UNINSTALLED | … */
+      event: string;
+      /** DISABLE | REINSTATE | SCHEDULE_FOR_DISABLE (DISABLED_UPDATE only). */
+      banState?: string;
+      /** ACCOUNT_RESTRICTION only; empty for the rest. `expiresAt` is in Unix seconds. */
+      restrictions: { type: string; expiresAt?: number }[];
+      violationType?: string;
+      displayPhoneNumber?: string;
+      /** The app the customer revoked (or granted) permissions for: PARTNER_APP_INSTALLED / _UNINSTALLED. */
+      partnerAppId?: string;
+    };
+
 export interface ParsedMetaWebhook {
   inbound: ParsedInbound[];
   statuses: ParsedStatus[];
   templateEvents: ParsedTemplateEvent[];
+  accountEvents: ParsedAccountEvent[];
 }
 
 // A TOLERANT schema for Meta's payload. Everything is optional, so an unexpected shape never throws — it comes
@@ -135,6 +174,8 @@ const MetaPayload = z.object({
   entry: z
     .array(
       z.object({
+        // The WhatsApp Business account id. Account notices carry no other hint of who they are for.
+        id: z.union([z.string(), z.number()]).optional(),
         changes: z
           .array(
             z.object({
@@ -211,6 +252,20 @@ const MetaPayload = z.object({
                 message_template_category: z.union([z.string(), z.number()]).optional(),
                 new_category: z.union([z.string(), z.number()]).optional(), // category updates only
                 reason: z.union([z.string(), z.number()]).optional(),
+                // Account notices. Just as permissive, and the nested objects are typed as `unknown`: a shape that Meta
+                // changes must not fail the parse of the whole delivery. They are narrowed by hand further down.
+                correct_category: z.union([z.string(), z.number()]).optional(),
+                category_update_timestamp: z.union([z.string(), z.number()]).optional(),
+                new_quality_score: z.union([z.string(), z.number()]).optional(),
+                display_phone_number: z.union([z.string(), z.number()]).optional(),
+                phone_number: z.union([z.string(), z.number()]).optional(),
+                current_limit: z.union([z.string(), z.number()]).optional(),
+                max_daily_conversations_per_business: z.union([z.string(), z.number()]).optional(),
+                max_daily_conversation_per_phone: z.union([z.string(), z.number()]).optional(),
+                ban_info: z.unknown().optional(),
+                restriction_info: z.unknown().optional(),
+                violation_info: z.unknown().optional(),
+                waba_info: z.unknown().optional(),
               }),
             }),
           )
@@ -237,7 +292,7 @@ interface MediaSubObj {
 
 /** Pulls the inbound messages and the statuses out of a Meta payload. Tolerant: garbage yields empty sections. */
 export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
-  const out: ParsedMetaWebhook = { inbound: [], statuses: [], templateEvents: [] };
+  const out: ParsedMetaWebhook = { inbound: [], statuses: [], templateEvents: [], accountEvents: [] };
   const parsed = MetaPayload.safeParse(body);
   if (!parsed.success) return out;
 
@@ -248,17 +303,62 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
       // Template events, status and category, discriminated by `field`. They carry no phone number id, so they are
       // resolved BEFORE the guard that requires one — which would otherwise discard them. Which tenant they belong to
       // is resolved by template id, not by number.
-      if (change.field === "message_template_status_update" || change.field === "message_template_category_update") {
+      // A category change arrives as `template_category_update`: that is the name in Meta's reference. For
+      // months only `message_template_category_update` was expected here, which Meta does not send, so the notice never
+      // matched and the category was only corrected by the hourly sync. Both names are accepted.
+      const esCategoria = change.field === "template_category_update" || change.field === "message_template_category_update";
+      const esCalidad = change.field === "message_template_quality_update";
+      if (change.field === "message_template_status_update" || esCategoria || esCalidad) {
         const id = v.message_template_id;
         if (id === undefined || id === null) continue; // with no id there is no row to point at
-        const isCategoryOnly = change.field === "message_template_category_update";
+        if (esCalidad && v.new_quality_score == null) continue; // a quality notice without a quality says nothing
+        const cuando = Number(v.category_update_timestamp);
         out.templateEvents.push({
           metaTemplateId: String(id),
-          event: isCategoryOnly ? "CATEGORY_UPDATE" : String(v.event ?? ""),
+          event: esCategoria ? "CATEGORY_UPDATE" : esCalidad ? "QUALITY_UPDATE" : String(v.event ?? ""),
           name: v.message_template_name != null ? String(v.message_template_name) : undefined,
           language: v.message_template_language != null ? String(v.message_template_language) : undefined,
           category: v.new_category != null ? String(v.new_category) : v.message_template_category != null ? String(v.message_template_category) : undefined,
           reason: v.reason != null ? String(v.reason) : undefined,
+          ...(esCategoria && v.correct_category != null ? { correctCategory: String(v.correct_category) } : {}),
+          ...(esCategoria && v.category_update_timestamp != null && Number.isFinite(cuando) ? { categoryUpdateAt: cuando } : {}),
+          ...(esCalidad ? { quality: String(v.new_quality_score) } : {}),
+        });
+        continue;
+      }
+
+      // ACCOUNT notices. They carry no `metadata.phone_number_id` either: they go BEFORE the guard below, which used to drop them.
+      // The account comes from `waba_info.waba_id` when the notice is about a customer's account (the PARTNER_* events), and otherwise
+      // from `entry.id`. Without an account there is nobody to apply it to.
+      if (change.field === "phone_number_quality_update" || change.field === "business_capability_update") {
+        const wabaId = entry.id != null ? String(entry.id) : "";
+        const limit = limiteDeMensajes(v.max_daily_conversations_per_business) ?? limiteDeMensajes(v.current_limit) ?? limiteDeMensajes(v.max_daily_conversation_per_phone);
+        if (!wabaId || !limit) continue;
+        out.accountEvents.push({
+          kind: "messaging_limit",
+          wabaId,
+          limit,
+          ...(change.field === "phone_number_quality_update" && v.display_phone_number != null ? { displayPhoneNumber: String(v.display_phone_number) } : {}),
+        });
+        continue;
+      }
+      if (change.field === "account_update") {
+        const info = objeto(v.waba_info);
+        const wabaId = texto(info?.waba_id) ?? (entry.id != null ? String(entry.id) : "");
+        const event = v.event != null ? String(v.event) : "";
+        if (!wabaId || !event) continue;
+        const banState = texto(objeto(v.ban_info)?.waba_ban_state);
+        const violationType = texto(objeto(v.violation_info)?.violation_type);
+        const partnerAppId = texto(info?.partner_app_id);
+        out.accountEvents.push({
+          kind: "account",
+          wabaId,
+          event,
+          ...(banState ? { banState } : {}),
+          ...(violationType ? { violationType } : {}),
+          ...(v.phone_number != null ? { displayPhoneNumber: String(v.phone_number) } : {}),
+          ...(partnerAppId ? { partnerAppId } : {}),
+          restrictions: restricciones(v.restriction_info),
         });
         continue;
       }
@@ -364,6 +464,35 @@ export function parseMetaWebhook(body: unknown): ParsedMetaWebhook {
     }
   }
   return out;
+}
+
+// ── Narrowing by hand what the schema lets through as `unknown` ──
+function objeto(x: unknown): Record<string, unknown> | null {
+  return typeof x === "object" && x !== null && !Array.isArray(x) ? (x as Record<string, unknown>) : null;
+}
+function texto(x: unknown): string | undefined {
+  return typeof x === "string" && x !== "" ? x : typeof x === "number" && Number.isFinite(x) ? String(x) : undefined;
+}
+function restricciones(x: unknown): { type: string; expiresAt?: number }[] {
+  if (!Array.isArray(x)) return [];
+  return x.flatMap((r) => {
+    const type = texto(objeto(r)?.restriction_type);
+    if (!type) return [];
+    const exp = Number(objeto(r)?.expiration);
+    return [{ type, ...(objeto(r)?.expiration != null && Number.isFinite(exp) ? { expiresAt: exp } : {}) }];
+  });
+}
+
+// The messaging limit, ALWAYS as Meta's TIER_* value. It arrives in three ways depending on the field and the age of the
+// notice: as text (`TIER_2K`), as the number of conversations (`2000`) or, on the old field, `-1` meaning unlimited.
+// Anything unrecognized returns `undefined`: no limit is made up.
+const LIMITES_POR_NUMERO: Record<number, string> = { 50: "TIER_50", 250: "TIER_250", 2000: "TIER_2K", 10000: "TIER_10K", 100000: "TIER_100K", [-1]: "TIER_UNLIMITED" };
+const LIMITES = new Set(["TIER_50", "TIER_250", "TIER_2K", "TIER_10K", "TIER_100K", "TIER_UNLIMITED", "TIER_NOT_SET"]);
+function limiteDeMensajes(x: string | number | undefined): string | undefined {
+  if (x === undefined) return undefined;
+  if (typeof x === "string" && LIMITES.has(x.toUpperCase())) return x.toUpperCase();
+  const n = typeof x === "number" ? x : /^-?\d+$/.test(x) ? Number(x) : Number.NaN;
+  return LIMITES_POR_NUMERO[n];
 }
 
 // The code of the first error of a `failed` status. Meta sends it as a number (`131049`); text is accepted too.
